@@ -33,7 +33,6 @@ def get_db():
 # User CRUD operations and routes
 
 # add user to database
-
 @app.post("/api/add_user/", response_model=UserResponse)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
     try:

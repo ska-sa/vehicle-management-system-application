@@ -43,3 +43,5 @@ To start everthing use these commands on the terminal:
     * Make sure you are in the backend directory when running these commands.
 
 Check the docker-compose file for passwords, usernames and databse URL.
+
+
