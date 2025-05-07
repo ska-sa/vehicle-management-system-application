@@ -3,7 +3,9 @@ from sqlalchemy import Column, Integer, String, Date, ForeignKey, Boolean, Float
 from sqlalchemy.orm import relationship
 from enum import Enum
 from typing import Optional
-
+from sqlalchemy.orm import relationship
+from datetime import datetime
+from sqlalchemy.dialects.postgresql import JSON
 
 class Vehicle(Base):
     __tablename__ = "vehicle"
@@ -19,6 +21,9 @@ class Vehicle(Base):
     last_service_date = Column(Date, nullable=False)
     last_service_km = Column(Integer, nullable=False)
 
+    # Relationship with inspections
+    inspections = relationship("Inspection", back_populates="vehicle")
+
 # enum class for user role
 
 
@@ -29,11 +34,14 @@ class Role(str, Enum):
 
 class User(Base):
     __tablename__ = "users"
-    user_id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String)
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     role = Column(SQLEnum(Role))
+
+    # Relationship with inspections
+    inspections = relationship("Inspection", back_populates="user")
 
 
 # enum class for trip status
@@ -73,9 +81,9 @@ class InspectionType(str, Enum):
     pre_trip = "pre_trip"
     post_trip = "post_trip"
 
-
 class Inspection(Base):
     __tablename__ = "Inspection"
+
     inspection_id = Column(Integer, primary_key=True, index=True)
     vehicle_id = Column(Integer, ForeignKey("vehicle.id"), index=True)
     user_id = Column(Integer, ForeignKey("users.user_id"), index=True)
@@ -83,7 +91,10 @@ class Inspection(Base):
     date = Column(Date)
     signed_by = Column(String)
     status = Column(SQLEnum(Status))
+    vehicle = relationship("Vehicle", back_populates="inspections")
+    user = relationship("User", back_populates="inspections")
 
+    signed_pdf_path = Column(String, nullable=True)
 
 class ServiceHistory(Base):
     __tablename__ = "ServiceHistory"

@@ -1,7 +1,7 @@
 from datetime import date
 from enum import Enum
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # Define the schemas for the API using Pydantic models
@@ -110,6 +110,7 @@ class TripResponse(TripBase):
     user_id: int
     trip_date: date
     trip_status: Status
+    status: Status = Field(..., alias="trip_status")
 
 
 class ServiceNotificationBase(BaseModel):
@@ -131,9 +132,13 @@ class InspectionBase(BaseModel):
     status: Status
 
 
-class InspectionCreate(InspectionBase):
-    pass
-
+class InspectionCreate(BaseModel):
+    vehicle_id: int
+    user_id: int
+    type: str
+    date: date
+    signed_by: str
+    status: str
 
 class InspectionResponse(InspectionBase):
     inspection_id: int

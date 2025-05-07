@@ -1,6 +1,6 @@
 # backend/dockerfile
 
-FROM python:3-slim
+FROM python:alpine
 
 # Set work directory
 WORKDIR /app
