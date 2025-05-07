@@ -1,6 +1,7 @@
+
 services:
   database:
-    image: postgres:13
+    image: postgres:13.20 ##I am using Postgres 13.20 change it to the one you use ,recomended is 13 or 13.20 which we used here
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin123
@@ -9,6 +10,7 @@ services:
       - "5432:5432" # Add this to expose PostgreSQL port
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      
 
   pgadmin:
     image: dpage/pgadmin4
@@ -22,12 +24,18 @@ services:
 
   server:
     build: .
+    env_file:
+      - ./app/emails.env   # This is added otherwise the emailSender.py won't know what data to use very important!
     environment:
-      DATABASE_URL: postgres://admin:admin123@database:5432/VehicleManagementSystemDB
+      DATABASE_URL: postgresql://admin:admin123@database:5432/VehicleManagementSystemDB
+     
+
     ports:
       - "8000:8000"
     depends_on:
       - database
-
+    volumes:
+      - ./inspections:/app/inspections  ##This ultimately adds the route path of where the signed PDF document will be stored 
 volumes:
   postgres_data:
+  

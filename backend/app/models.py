@@ -81,16 +81,6 @@ class InspectionType(str, Enum):
     pre_trip = "pre_trip"
     post_trip = "post_trip"
 
-
-#Evan --changed the vehicle vin number data type from Integer to String 
-class ServiceHistory(Base):
-    __tablename__ = "ServiceHistory"
-    service_id = Column(Integer, primary_key=True, index=True)
-    vehicle_vin = Column(String, ForeignKey("vehicle.vin"), index=True)
-    service_date = Column(Date)
-    service_mileage = Column(Integer)
-
-
 class Inspection(Base):
     __tablename__ = "Inspection"
 
@@ -101,7 +91,10 @@ class Inspection(Base):
     date = Column(Date)
     signed_by = Column(String)
     status = Column(SQLEnum(Status))
+    vehicle = relationship("Vehicle", back_populates="inspections")
+    user = relationship("User", back_populates="inspections")
 
+    signed_pdf_path = Column(String, nullable=True)
 
 class ServiceHistory(Base):
     __tablename__ = "ServiceHistory"
