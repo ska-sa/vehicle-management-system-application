@@ -46,6 +46,7 @@ services:
       - "3000:3000"
     volumes:
       - ./frontend:/app
+      - /app/node_modules
     environment:
       - NODE_ENV=development
       - REACT_APP_BACKEND_URL=http://localhost:8000
