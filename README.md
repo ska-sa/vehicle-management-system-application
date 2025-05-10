@@ -34,14 +34,16 @@ How it all connects
     * Validates data with Pydantic schemas (schemas.py)
     * The __init__.py initializes the database.
 
-3. Testing:
-    * Since frontend is not integrated, use Thunder Client extension to test the app. Provide a JSON request body for post requests(adding someting in the database).
 
 To start everthing use these commands on the terminal:
-    * uvicorn app.main:app
-    * docker-compose up -d
-    * Make sure you are in the backend directory when running these commands.
+    * docker-compose down (this command is for shutting down docker.)
+    * docker-compose up --build (This command for starting and building docker)
+    * run both commands if you made edits to the project.
 
-Check the docker-compose file for passwords, usernames and databse URL.
+Check the docker-compose file for password, username for pgadmin(login) and postgres(database).
+
+If you have any problems please communicate in the whatsapp group chat or send an email to Pieter and Nomcebo. Don't forget to cc one of them when you email your queries.
+
+
 
 
