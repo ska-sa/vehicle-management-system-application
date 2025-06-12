@@ -5,3 +5,4 @@ psycopg2-binary
 pydantic
 fastapi-cors
 pydantic[email]
+alembic

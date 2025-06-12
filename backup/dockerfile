@@ -1,0 +1,30 @@
+# Use a lightweight base image
+FROM alpine:latest
+
+# Install PostgreSQL client (for pg_dump) and BusyBox (for crond)
+RUN apk update && apk add --no-cache postgresql-client busybox tzdata
+
+# Set timezone to Africa/Johannesburg
+RUN apk add --no-cache tzdata
+ENV TZ=Africa/Johannesburg
+
+
+# Create a directory for backups
+RUN mkdir /backups
+
+# Copy the backup script
+COPY backup.sh /backup.sh
+
+# Make the script executable
+RUN chmod +x /backup.sh
+
+# Create the cron log file
+RUN touch /var/log/cron.log
+
+# Set up the crontab for the root user
+RUN mkdir -p /var/spool/cron/crontabs
+RUN echo "0 10 * * *  /backup.sh >> /var/log/cron.log 2>&1" > /var/spool/cron/crontabs/root
+RUN chmod 600 /var/spool/cron/crontabs/root
+
+# Start BusyBox crond in the foreground
+CMD ["busybox", "crond", "-f", "-L", "/var/log/cron.log"]

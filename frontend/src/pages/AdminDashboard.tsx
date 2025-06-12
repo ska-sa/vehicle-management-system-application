@@ -1,1016 +1,871 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-    AppBar,
-    Toolbar,
-    Typography,
-    Button,
-    Container,
-    Tabs,
-    Tab,
-    Box,
-    TextField,
-    MenuItem,
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableRow,
-    IconButton,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    Alert,
-} from '@mui/material';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import VisibilityIcon from '@mui/icons-material/Visibility';
 import axios from 'axios';
-import { AuthContext } from '../context/AuthContext';
-import { Vehicle, Trip, Inspection, User } from '../types/types';
+import {
+    Box, Typography, Button, Table, TableBody, TableCell, TableHead, TableRow,
+    Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem,
+    CircularProgress, Alert, IconButton, Tabs, Tab, Select, FormControl, InputLabel
+} from '@mui/material';
+import { Edit, Delete, Add } from '@mui/icons-material';
+import {
+    UserProfile, Vehicle, Trip, Inspection, ServiceHistory,
+    VehicleDueForServiceResponse, InspectionStatus, InspectionType
+} from '../types/types';
 
-const AdminDashboard: React.FC = () => {
-    const authContext = useContext(AuthContext);
-    if (!authContext) {
-        throw new Error('AuthContext is undefined. Ensure AuthProvider is wrapping the component tree.');
-    }
-    const { user, token, logout } = authContext;
+interface AdminDashboardProps {
+    user: UserProfile | null;
+    token: string | null;
+}
+
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, token }) => {
     const navigate = useNavigate();
-    const [tab, setTab] = useState(0);
+    const [activeTab, setActiveTab] = useState('trips');
     const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-    const [users, setUsers] = useState<User[]>([]);
+    const [availableVehicles, setAvailableVehicles] = useState<Vehicle[]>([]);
+    const [users, setUsers] = useState<UserProfile[]>([]);
+    const [availableUsers, setAvailableUsers] = useState<UserProfile[]>([]);
     const [trips, setTrips] = useState<Trip[]>([]);
     const [inspections, setInspections] = useState<Inspection[]>([]);
-    const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-    const [selectedUser, setSelectedUser] = useState<User | null>(null);
-    const [selectedInspectionId, setSelectedInspectionId] = useState<number | null>(null);
-    const [selectedInspection, setSelectedInspection] = useState<Inspection | null>(null);
-    const [assignVehicleId, setAssignVehicleId] = useState(0);
-    const [filter, setFilter] = useState({ make: '', model: '', licence_plate: '' });
-    const [newVehicle, setNewVehicle] = useState({
-        vin: '',
-        make: '',
-        model: '',
-        year: 0,
-        licence_plate: '',
-        fuel_type: '',
-        mileage: 0,
-        last_service_date: '',
-        last_service_km: 0,
-    });
+    const [dueForService, setDueForService] = useState<VehicleDueForServiceResponse[]>([]);
+    const [serviceHistory, setServiceHistory] = useState<ServiceHistory[]>([]);
+    const [openTripDialog, setOpenTripDialog] = useState(false);
+    const [openInspectionDialog, setOpenInspectionDialog] = useState(false);
+    const [openServiceDialog, setOpenServiceDialog] = useState(false);
+    const [openUserDialog, setOpenUserDialog] = useState(false);
+    const [openVehicleDialog, setOpenVehicleDialog] = useState(false);
+    const [openProfileDialog, setOpenProfileDialog] = useState(false);
+    const [editTrip, setEditTrip] = useState<Trip | null>(null);
+    const [editInspection, setEditInspection] = useState<Inspection | null>(null);
+    const [editUser, setEditUser] = useState<UserProfile | null>(null);
+    const [editVehicle, setEditVehicle] = useState<Vehicle | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [filterQuery, setFilterQuery] = useState('');
+
+    // Initialize form states with minimal defaults
     const [newTrip, setNewTrip] = useState({
-        vehicle_id: 0,
         user_id: 0,
+        vehicle_id: 0,
+        trip_date: new Date().toISOString().split('T')[0],
+        distance: null as number | null,
+        trip_status: 'pending' as 'pending' | 'completed' | 'cancelled',
+        fuel_consumed: null as number | null,
+        purpose: '',
         start_location: '',
         destination: '',
-        purpose: '',
-        trip_date: '',
-        distance: 0,
-        fuel_consumed: 0,
-        trip_status: 'completed',
     });
+
     const [newInspection, setNewInspection] = useState({
         vehicle_id: 0,
         user_id: 0,
-        type: 'pre_trip',
-        date: '',
+        employee_id: 0,
+        tires: InspectionStatus.good as InspectionStatus,
+        brakes: InspectionStatus.good as InspectionStatus,
+        lights: InspectionStatus.good as InspectionStatus,
+        fluids: InspectionStatus.good as InspectionStatus,
+        mirrors: InspectionStatus.good as InspectionStatus,
+        wipers: InspectionStatus.good as InspectionStatus,
+        battery: InspectionStatus.good as InspectionStatus,
+        body: InspectionStatus.good as InspectionStatus,
+        interior: InspectionStatus.good as InspectionStatus,
+        engine: InspectionStatus.good as InspectionStatus,
+        transmission: InspectionStatus.good as InspectionStatus,
+        suspension: InspectionStatus.good as InspectionStatus,
+        date: new Date().toISOString().split('T')[0],
         signed_by: '',
-        status: 'completed',
+        type: InspectionType.pre_trip as InspectionType,
     });
-    const [editVehicle, setEditVehicle] = useState<Vehicle | null>(null);
-    const [editTrip, setEditTrip] = useState<Trip | null>(null);
-    const [editInspection, setEditInspection] = useState<Inspection | null>(null);
-    const [error, setError] = useState('');
-    const [openVehicleDialog, setOpenVehicleDialog] = useState(false);
-    const [openTripDialog, setOpenTripDialog] = useState(false);
-    const [openInspectionDialog, setOpenInspectionDialog] = useState(false);
-    const [openViewInspectionDialog, setOpenViewInspectionDialog] = useState(false);
 
+    const [newService, setNewService] = useState({
+        vehicle_vin: '',
+        service_date: new Date().toISOString().split('T')[0],
+        service_mileage: 0,
+    });
+
+    const [newUser, setNewUser] = useState({
+        name: '',
+        email: '',
+        password: '',
+        role: 'employee' as 'admin' | 'employee',
+        vehicle_id: null as number | null,
+    });
+
+    const [newVehicle, setNewVehicle] = useState({
+        make: '',
+        model: '',
+        licence_plate: '',
+        vin: '',
+        mileage: 0,
+        year: new Date().getFullYear(),
+        fuel_type: null as string | null,
+        last_service_km: 0,
+        last_service_date: new Date().toISOString().split('T')[0],
+    });
+
+    const [profileData, setProfileData] = useState({
+        name: user?.name || '',
+        email: user?.email || '',
+        password: '',
+    });
+
+    // Fetch data
     useEffect(() => {
-        if (!user || user.role !== 'admin') {
+        if (!user?.user_id || !token || user.role !== 'admin') {
             navigate('/');
-        } else {
-            fetchVehicles();
-            fetchUsers();
-            fetchTrips();
-            fetchAllInspections();
+            return;
         }
-    }, [user, navigate, filter]);
 
-    const fetchVehicles = async () => {
-        try {
-            const response = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/api/get_all_vehicles/`, {
-                params: filter,
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            setVehicles(response.data);
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to fetch vehicles');
-        }
-    };
+        let isMounted = true;
 
-    const fetchUsers = async () => {
-        try {
-            const response = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/api/get_all_users/`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            setUsers(response.data);
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to fetch users');
-        }
-    };
+        const fetchData = async () => {
+            try {
+                setLoading(true);
+                setError(null);
 
-    const fetchTrips = async () => {
-        try {
-            const response = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/api/get_all_trips/`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            setTrips(response.data);
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to fetch trips');
-        }
-    };
+                const baseUrl = 'http://localhost:8000';
 
-    const fetchAllInspections = async () => {
-        try {
-            const response = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/api/get_all_inspections/`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            setInspections(response.data);
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to fetch inspections');
-        }
-    };
+                const endpoints = [
+                    { name: 'All vehicles', url: '/api/get_all_vehicles/', setter: setVehicles },
+                    { name: 'Available vehicles', url: '/api/get_available_vehicles/', setter: setAvailableVehicles },
+                    { name: 'All users', url: '/api/get_all_users/', setter: setUsers },
+                    { name: 'Available users', url: '/api/get_available_users/', setter: setAvailableUsers },
+                    { name: 'Trips', url: '/api/get_all_trips/', setter: setTrips },
+                    { name: 'Inspections', url: '/api/get_all_inspections/', setter: setInspections },
+                    { name: 'Due for service', url: '/api/vehicles/due_for_service/', setter: setDueForService },
+                    { name: 'Service history', url: '/api/get_all_service_history/', setter: setServiceHistory }
+                ];
 
-    const fetchInspection = async (inspectionId: number) => {
-        try {
-            const response = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/api/get_inspection/${inspectionId}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            setSelectedInspection(response.data);
-            setOpenViewInspectionDialog(true);
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to fetch inspection');
-        }
-    };
+                const results = await Promise.allSettled(
+                    endpoints.map(async ({ name, url, setter }) => {
+                        const res = await axios.get(`${baseUrl}${url}`, {
+                            headers: { Authorization: `Bearer ${token}` }
+                        });
+                        return { name, status: 'fulfilled', data: res.data };
+                    })
+                );
 
-    const fetchUser = async (userId: number) => {
-        try {
-            const response = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/api/get_user/${userId}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            setSelectedUser(response.data);
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to fetch user');
-        }
-    };
+                if (!isMounted) return;
 
-    const handleAddVehicle = async () => {
-        try {
-            await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/add_vehicle/`, newVehicle, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            fetchVehicles();
-            setOpenVehicleDialog(false);
-            setNewVehicle({
-                vin: '',
-                make: '',
-                model: '',
-                year: 0,
-                licence_plate: '',
-                fuel_type: '',
-                mileage: 0,
-                last_service_date: '',
-                last_service_km: 0,
-            });
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to add vehicle');
-        }
-    };
+                // Batch error collection
+                const errors: string[] = [];
+                results.forEach((result, index) => {
+                    if (result.status === 'fulfilled') {
+                        endpoints[index].setter(result.value.data || []);
+                    } else {
+                        endpoints[index].setter([]);
+                        errors.push(`${endpoints[index].name} failed: ${result.reason.message}`);
+                    }
+                });
 
-    const handleAddTrip = async () => {
-        try {
-            await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/add_trip/`, newTrip, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            fetchTrips();
-            setOpenTripDialog(false);
+                if (errors.length > 0) {
+                    setError(errors.join(', '));
+                }
+
+            } catch (err: any) {
+                if (isMounted) {
+                    setError(`Unexpected error: ${err.message}`);
+                }
+            } finally {
+                if (isMounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        fetchData();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [token, navigate, user?.user_id, user?.role]);
+
+    // Memoize filtered vehicles
+    const filteredVehicles = useMemo(() => {
+        return vehicles.filter(vehicle =>
+            vehicle.make.toLowerCase().includes(filterQuery.toLowerCase()) ||
+            vehicle.model.toLowerCase().includes(filterQuery.toLowerCase()) ||
+            vehicle.licence_plate.toLowerCase().includes(filterQuery.toLowerCase())
+        );
+    }, [vehicles, filterQuery]);
+
+    // Helper to open Trip dialog with defaults
+    const handleOpenTripDialog = (trip?: Trip) => {
+        if (trip) {
+            setEditTrip(trip);
             setNewTrip({
-                vehicle_id: 0,
-                user_id: 0,
+                ...trip,
+                distance: trip.distance || null,
+                fuel_consumed: trip.fuel_consumed || null,
+                purpose: trip.purpose || '',
+                start_location: trip.start_location || '',
+                destination: trip.destination || ''
+            });
+        } else {
+            setEditTrip(null);
+            setNewTrip({
+                user_id: availableUsers[0]?.user_id || 0,
+                vehicle_id: availableVehicles[0]?.id || 0,
+                trip_date: new Date().toISOString().split('T')[0],
+                distance: null,
+                trip_status: 'pending',
+                fuel_consumed: null,
+                purpose: '',
                 start_location: '',
                 destination: '',
-                purpose: '',
-                trip_date: '',
-                distance: 0,
-                fuel_consumed: 0,
-                trip_status: 'completed',
             });
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to add trip');
         }
-    };
-
-    const handleAddInspection = async () => {
-        try {
-            console.log('Sending inspection payload:', newInspection); // Log payload for debugging
-            const response = await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/add_inspection/`, newInspection, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            fetchAllInspections();
-            setOpenInspectionDialog(false);
-            setNewInspection({
-                vehicle_id: 0,
-                user_id: 0,
-                type: 'pre_trip',
-                date: '',
-                signed_by: '',
-                status: 'completed',
-            });
-        } catch (err: any) {
-            console.error('Error adding inspection:', err.response?.data); // Log full error response
-            if (err.response && err.response.data && err.response.data.detail) {
-                const errorDetail = err.response.data.detail;
-                if (Array.isArray(errorDetail)) {
-                    setError(errorDetail.map((e: any) => e.msg).join(', '));
-                } else {
-                    setError(err.response.data.detail.msg || 'Failed to add inspection');
-                }
-            } else {
-                setError('Failed to add inspection due to an unexpected error.');
-            }
-        }
-    };
-
-    const handleUpdateVehicle = async () => {
-        if (!editVehicle) return;
-        try {
-            await axios.put(`${process.env.REACT_APP_BACKEND_URL}/api/update_vehicle/${editVehicle.id}`, editVehicle, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            fetchVehicles();
-            setOpenVehicleDialog(false);
-            setEditVehicle(null);
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to update vehicle');
-        }
-    };
-
-    const handleUpdateTrip = async () => {
-        if (!editTrip) return;
-        try {
-            const payload = {
-                ...editTrip,
-                distance: editTrip.distance || null,
-                fuel_consumed: editTrip.fuel_consumed || null,
-                purpose: editTrip.purpose || null,
-                trip_status: editTrip.trip_status || null,
-            };
-            await axios.put(`${process.env.REACT_APP_BACKEND_URL}/api/update_trip/${editTrip.trip_id}`, payload, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            fetchTrips();
-            setOpenTripDialog(false);
-            setEditTrip(null);
-        } catch (err: any) {
-            if (err.response && err.response.data && err.response.data.detail) {
-                setError(err.response.data.detail.msg || 'Failed to update trip');
-            } else {
-                setError('Failed to update trip due to an unexpected error.');
-            }
-        }
-    };
-
-    const handleUpdateInspection = async () => {
-        if (!editInspection) return;
-        try {
-            await axios.put(`${process.env.REACT_APP_BACKEND_URL}/api/update_inspection/${editInspection.inspection_id}`, editInspection, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            fetchAllInspections();
-            setOpenInspectionDialog(false);
-            setEditInspection(null);
-        } catch (err: any) {
-            if (err.response && err.response.data && err.response.data.detail) {
-                setError(err.response.data.detail.msg || 'Failed to update inspection');
-            } else {
-                setError('Failed to update inspection due to an unexpected error.');
-            }
-        }
-    };
-
-    const handleDeleteVehicle = async (id: number) => {
-        try {
-            await axios.delete(`${process.env.REACT_APP_BACKEND_URL}/api/delete_vehicle/${id}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            fetchVehicles();
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to delete vehicle');
-        }
-    };
-
-    const handleDeleteTrip = async (id: number) => {
-        try {
-            await axios.delete(`${process.env.REACT_APP_BACKEND_URL}/api/delete_trip/${id}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            fetchTrips();
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to delete trip');
-        }
-    };
-
-    const handleDeleteInspection = async (id: number) => {
-        try {
-            await axios.delete(`${process.env.REACT_APP_BACKEND_URL}/api/delete_inspection/${id}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            fetchAllInspections();
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to delete inspection');
-        }
-    };
-
-    const handleAssignVehicle = async (email: string) => {
-        try {
-            await axios.put(`${process.env.REACT_APP_BACKEND_URL}/api/assign_vehicle_by_email/`, {
-                email,
-                vehicle_id: assignVehicleId,
-            });
-            fetchUsers();
-            setAssignVehicleId(0);
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to assign vehicle');
-        }
-    };
-
-    const handleEditVehicle = (vehicle: Vehicle) => {
-        setEditVehicle(vehicle);
-        setOpenVehicleDialog(true);
-    };
-
-    const handleEditTrip = (trip: Trip) => {
-        setEditTrip(trip);
         setOpenTripDialog(true);
     };
 
-    const handleEditInspection = (inspection: Inspection) => {
-        setEditInspection(inspection);
+    // Helper to open Inspection dialog with defaults
+    const handleOpenInspectionDialog = (inspection?: Inspection) => {
+        if (inspection) {
+            setEditInspection(inspection);
+            setNewInspection({
+                ...inspection,
+                user_id: inspection.user_id,
+                employee_id: inspection.user_id,
+                signed_by: inspection.signed_by ?? '',
+                tires: inspection.tires ?? InspectionStatus.good,
+                brakes: inspection.brakes ?? InspectionStatus.good,
+                lights: inspection.lights ?? InspectionStatus.good,
+                fluids: inspection.fluids ?? InspectionStatus.good,
+                mirrors: inspection.mirrors ?? InspectionStatus.good,
+                wipers: inspection.wipers ?? InspectionStatus.good,
+                battery: inspection.battery ?? InspectionStatus.good,
+                body: inspection.body ?? InspectionStatus.good,
+                interior: inspection.interior ?? InspectionStatus.good,
+                engine: inspection.engine ?? InspectionStatus.good,
+                transmission: inspection.transmission ?? InspectionStatus.good,
+                suspension: inspection.suspension ?? InspectionStatus.good,
+            });
+        } else {
+            setEditInspection(null);
+            setNewInspection({
+                vehicle_id: availableVehicles[0]?.id || 0,
+                user_id: availableUsers[0]?.user_id || 0,
+                employee_id: availableUsers[0]?.user_id || 0,
+                tires: InspectionStatus.good,
+                brakes: InspectionStatus.good,
+                lights: InspectionStatus.good,
+                fluids: InspectionStatus.good,
+                mirrors: InspectionStatus.good,
+                wipers: InspectionStatus.good,
+                battery: InspectionStatus.good,
+                body: InspectionStatus.good,
+                interior: InspectionStatus.good,
+                engine: InspectionStatus.good,
+                transmission: InspectionStatus.good,
+                suspension: InspectionStatus.good,
+                date: new Date().toISOString().split('T')[0],
+                signed_by: '',
+                type: InspectionType.pre_trip,
+            });
+        }
         setOpenInspectionDialog(true);
     };
 
-    const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setFilter({ ...filter, [e.target.name]: e.target.value });
+    // Helper to open Service dialog with defaults
+    const handleOpenServiceDialog = () => {
+        setNewService({
+            vehicle_vin: vehicles[0]?.vin || '',
+            service_date: new Date().toISOString().split('T')[0],
+            service_mileage: 0,
+        });
+        setOpenServiceDialog(true);
     };
 
-    const handleLogout = () => {
-        logout();
-        navigate('/');
+    const handleTripSubmit = async () => {
+        try {
+            const baseUrl = 'http://localhost:8000';
+            const payload = {
+                ...newTrip,
+                distance: newTrip.distance || null,
+                fuel_consumed: newTrip.fuel_consumed || null,
+                purpose: newTrip.purpose || null,
+                start_location: newTrip.start_location || null,
+                destination: newTrip.destination || null
+            };
+            if (editTrip) {
+                await axios.put(`${baseUrl}/api/update_trip/${editTrip.trip_id}`, payload, { headers: { Authorization: `Bearer ${token}` } });
+            } else {
+                await axios.post(`${baseUrl}/api/add_trip/`, payload, { headers: { Authorization: `Bearer ${token}` } });
+            }
+            const tripsRes = await axios.get(`${baseUrl}/api/get_all_trips/`, { headers: { Authorization: `Bearer ${token}` } });
+            setTrips(tripsRes.data);
+            setOpenTripDialog(false);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to save trip');
+        }
     };
+
+    const handleInspectionSubmit = async () => {
+        try {
+            const baseUrl = 'http://localhost:8000';
+            const payload = { ...newInspection, employee_id: newInspection.user_id };
+            if (editInspection) {
+                await axios.put(`${baseUrl}/api/inspections/${editInspection.inspection_id}`, payload, { headers: { Authorization: `Bearer ${token}` } });
+            } else {
+                await axios.post(`${baseUrl}/api/add_inspection/`, payload, { headers: { Authorization: `Bearer ${token}` } });
+            }
+            const inspectionsRes = await axios.get(`${baseUrl}/api/get_all_inspections/`, { headers: { Authorization: `Bearer ${token}` } });
+            setInspections(inspectionsRes.data);
+            setOpenInspectionDialog(false);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to save inspection');
+        }
+    };
+
+    const handleServiceSubmit = async () => {
+        try {
+            const baseUrl = 'http://localhost:8000';
+            await axios.post(`${baseUrl}/api/add_service_history/`, newService, { headers: { Authorization: `Bearer ${token}` } });
+            const historyRes = await axios.get(`${baseUrl}/api/get_all_service_history/`, { headers: { Authorization: `Bearer ${token}` } });
+            setServiceHistory(historyRes.data);
+            setOpenServiceDialog(false);
+        } catch (err: any) {
+            if (err.response?.data?.detail && Array.isArray(err.response.data.detail)) {
+                const errorMessages = err.response.data.detail.map((e: any) => e.msg).join(', ');
+                setError(errorMessages || 'Failed to save service record');
+            } else {
+                setError(err.response?.data?.detail || 'Failed to save service record');
+            }
+        }
+    };
+
+    const handleUserSubmit = async () => {
+        try {
+            const baseUrl = 'http://localhost:8000';
+            if (editUser) {
+                await axios.put(`${baseUrl}/api/update_user/${editUser.user_id}`, newUser, { headers: { Authorization: `Bearer ${token}` } });
+            } else {
+                await axios.post(`${baseUrl}/api/add_user/`, newUser, { headers: { Authorization: `Bearer ${token}` } });
+            }
+            const usersRes = await axios.get(`${baseUrl}/api/get_all_users/`, { headers: { Authorization: `Bearer ${token}` } });
+            const availableUsersRes = await axios.get(`${baseUrl}/api/get_available_users/`, { headers: { Authorization: `Bearer ${token}` } });
+            setUsers(usersRes.data);
+            setAvailableUsers(availableUsersRes.data);
+            setOpenUserDialog(false);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to save user');
+        }
+    };
+
+    const handleVehicleSubmit = async () => {
+        try {
+            const baseUrl = 'http://localhost:8000';
+            if (editVehicle) {
+                await axios.put(`${baseUrl}/api/update_vehicle/${editVehicle.id}`, newVehicle, { headers: { Authorization: `Bearer ${token}` } });
+            } else {
+                await axios.post(`${baseUrl}/api/add_vehicle/`, newVehicle, { headers: { Authorization: `Bearer ${token}` } });
+            }
+            const vehiclesRes = await axios.get(`${baseUrl}/api/get_all_vehicles/`, { headers: { Authorization: `Bearer ${token}` } });
+            const availableVehiclesRes = await axios.get(`${baseUrl}/api/get_available_vehicles/`, { headers: { Authorization: `Bearer ${token}` } });
+            setVehicles(vehiclesRes.data);
+            setAvailableVehicles(availableVehiclesRes.data);
+            setOpenVehicleDialog(false);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to save vehicle');
+        }
+    };
+
+    const handleProfileUpdate = async () => {
+        try {
+            const baseUrl = 'http://localhost:8000';
+            await axios.put(`${baseUrl}/api/update_user/${user?.user_id}`, profileData, { headers: { Authorization: `Bearer ${token}` } });
+            setOpenProfileDialog(false);
+            const updatedUser = { ...user, name: profileData.name, email: profileData.email };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            window.location.reload();
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Failed to update profile');
+        }
+    };
+
+    if (loading) {
+        return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress /></Box>;
+    }
 
     return (
-        <>
-            <AppBar position="static">
-                <Toolbar>
-                    <Typography variant="h6" sx={{ flexGrow: 1 }}>
-                        Admin Dashboard
-                    </Typography>
-                    <Button color="inherit" onClick={handleLogout}>
+        <Box sx={{ p: 4 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h4">Admin Dashboard</Typography>
+                <Box>
+                    <Button onClick={() => setOpenProfileDialog(true)} sx={{ mr: 2 }}>My Profile</Button>
+                    <Button variant="contained" color="secondary" onClick={() => { localStorage.removeItem('token'); localStorage.removeItem('user'); navigate('/'); }}>
                         Logout
                     </Button>
-                </Toolbar>
-            </AppBar>
-            <Container sx={{ mt: 4 }}>
-                {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-                <Tabs value={tab} onChange={(e, newValue) => setTab(newValue)} centered>
-                    <Tab label="Vehicles" />
-                    <Tab label="Users" />
-                    <Tab label="Trips" />
-                    <Tab label="Inspections" />
-                    <Tab label="Service Notifications" />
-                </Tabs>
-                {tab === 0 && (
-                    <Box sx={{ mt: 4 }}>
-                        <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-                            <TextField
-                                label="Filter by Make"
-                                name="make"
-                                value={filter.make}
-                                onChange={handleFilterChange}
-                                fullWidth
-                            />
-                            <TextField
-                                label="Filter by Model"
-                                name="model"
-                                value={filter.model}
-                                onChange={handleFilterChange}
-                                fullWidth
-                            />
-                            <TextField
-                                label="Filter by License Plate"
-                                name="licence_plate"
-                                value={filter.licence_plate}
-                                onChange={handleFilterChange}
-                                fullWidth
-                            />
-                        </Box>
-                        <Button variant="contained" onClick={() => setOpenVehicleDialog(true)}>
-                            Add Vehicle
-                        </Button>
-                        <Table sx={{ mt: 2 }}>
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell>VIN</TableCell>
-                                    <TableCell>Make</TableCell>
-                                    <TableCell>Model</TableCell>
-                                    <TableCell>Year</TableCell>
-                                    <TableCell>License Plate</TableCell>
-                                    <TableCell>Mileage</TableCell>
-                                    <TableCell>Last Service Date</TableCell>
-                                    <TableCell>Actions</TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {vehicles.map((vehicle) => (
-                                    <TableRow key={vehicle.id}>
-                                        <TableCell>{vehicle.vin}</TableCell>
-                                        <TableCell>{vehicle.make}</TableCell>
-                                        <TableCell>{vehicle.model}</TableCell>
-                                        <TableCell>{vehicle.year}</TableCell>
-                                        <TableCell>{vehicle.licence_plate}</TableCell>
-                                        <TableCell>{vehicle.mileage}</TableCell>
-                                        <TableCell>{vehicle.last_service_date}</TableCell>
-                                        <TableCell>
-                                            <IconButton onClick={() => handleEditVehicle(vehicle)}>
-                                                <EditIcon />
-                                            </IconButton>
-                                            <IconButton onClick={() => handleDeleteVehicle(vehicle.id)}>
-                                                <DeleteIcon />
-                                            </IconButton>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                        <Dialog open={openVehicleDialog} onClose={() => { setOpenVehicleDialog(false); setEditVehicle(null); }}>
-                            <DialogTitle>{editVehicle ? 'Edit Vehicle' : 'Add New Vehicle'}</DialogTitle>
-                            <DialogContent>
-                                <TextField
-                                    label="VIN"
-                                    value={editVehicle ? editVehicle.vin : newVehicle.vin}
-                                    onChange={(e) =>
-                                        editVehicle
-                                            ? setEditVehicle({ ...editVehicle, vin: e.target.value })
-                                            : setNewVehicle({ ...newVehicle, vin: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    label="Make"
-                                    value={editVehicle ? editVehicle.make : newVehicle.make}
-                                    onChange={(e) =>
-                                        editVehicle
-                                            ? setEditVehicle({ ...editVehicle, make: e.target.value })
-                                            : setNewVehicle({ ...newVehicle, make: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    label="Model"
-                                    value={editVehicle ? editVehicle.model : newVehicle.model}
-                                    onChange={(e) =>
-                                        editVehicle
-                                            ? setEditVehicle({ ...editVehicle, model: e.target.value })
-                                            : setNewVehicle({ ...newVehicle, model: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    label="Year"
-                                    type="number"
-                                    value={editVehicle ? editVehicle.year : newVehicle.year}
-                                    onChange={(e) =>
-                                        editVehicle
-                                            ? setEditVehicle({ ...editVehicle, year: parseInt(e.target.value) })
-                                            : setNewVehicle({ ...newVehicle, year: parseInt(e.target.value) })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    label="License Plate"
-                                    value={editVehicle ? editVehicle.licence_plate : newVehicle.licence_plate}
-                                    onChange={(e) =>
-                                        editVehicle
-                                            ? setEditVehicle({ ...editVehicle, licence_plate: e.target.value })
-                                            : setNewVehicle({ ...newVehicle, licence_plate: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    select
-                                    label="Fuel Type"
-                                    value={editVehicle ? editVehicle.fuel_type : newVehicle.fuel_type}
-                                    onChange={(e) =>
-                                        editVehicle
-                                            ? setEditVehicle({ ...editVehicle, fuel_type: e.target.value })
-                                            : setNewVehicle({ ...newVehicle, fuel_type: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                >
-                                    <MenuItem value="Petrol">Petrol</MenuItem>
-                                    <MenuItem value="Diesel">Diesel</MenuItem>
-                                </TextField>
-                                <TextField
-                                    label="Mileage"
-                                    type="number"
-                                    value={editVehicle ? editVehicle.mileage : newVehicle.mileage}
-                                    onChange={(e) =>
-                                        editVehicle
-                                            ? setEditVehicle({ ...editVehicle, mileage: parseInt(e.target.value) })
-                                            : setNewVehicle({ ...newVehicle, mileage: parseInt(e.target.value) })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    label="Last Service Date"
-                                    type="date"
-                                    value={editVehicle ? editVehicle.last_service_date : newVehicle.last_service_date}
-                                    onChange={(e) =>
-                                        editVehicle
-                                            ? setEditVehicle({ ...editVehicle, last_service_date: e.target.value })
-                                            : setNewVehicle({ ...newVehicle, last_service_date: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                    InputLabelProps={{ shrink: true }}
-                                />
-                                <TextField
-                                    label="Last Service KM"
-                                    type="number"
-                                    value={editVehicle ? editVehicle.last_service_km : newVehicle.last_service_km}
-                                    onChange={(e) =>
-                                        editVehicle
-                                            ? setEditVehicle({ ...editVehicle, last_service_km: parseInt(e.target.value) })
-                                            : setNewVehicle({ ...newVehicle, last_service_km: parseInt(e.target.value) })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                            </DialogContent>
-                            <DialogActions>
-                                <Button onClick={() => { setOpenVehicleDialog(false); setEditVehicle(null); }}>Cancel</Button>
-                                <Button onClick={editVehicle ? handleUpdateVehicle : handleAddVehicle} variant="contained">
-                                    {editVehicle ? 'Update' : 'Add'}
-                                </Button>
-                            </DialogActions>
-                        </Dialog>
+                </Box>
+            </Box>
+
+            {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+
+            <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} sx={{ mb: 2 }}>
+                <Tab label="Trips" value="trips" />
+                <Tab label="Inspections" value="inspections" />
+                <Tab label="Users" value="users" />
+                <Tab label="Vehicles" value="vehicles" />
+                <Tab label="Vehicles Due for Service" value="due" />
+                <Tab label="Service History" value="history" />
+            </Tabs>
+
+            {activeTab === 'trips' && (
+                <Box sx={{ mb: 4 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                        <Typography variant="h6">Trips</Typography>
+                        <Button variant="contained" startIcon={<Add />} onClick={() => handleOpenTripDialog()}>Add Trip</Button>
                     </Box>
-                )}
-                {tab === 1 && (
-                    <Box sx={{ mt: 4 }}>
-                        <Typography variant="h6">View All Users</Typography>
-                        <Table sx={{ mt: 2 }}>
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell>User ID</TableCell>
-                                    <TableCell>Name</TableCell>
-                                    <TableCell>Email</TableCell>
-                                    <TableCell>Role</TableCell>
-                                    <TableCell>Vehicle ID</TableCell>
-                                    <TableCell>Actions</TableCell>
+                    <Table>
+                        <TableHead>
+                            <TableRow>
+                                <TableCell>ID</TableCell>
+                                <TableCell>User</TableCell>
+                                <TableCell>Vehicle</TableCell>
+                                <TableCell>Date</TableCell>
+                                <TableCell>Status</TableCell>
+                                <TableCell>Actions</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {trips.map((trip) => (
+                                <TableRow key={trip.trip_id}>
+                                    <TableCell>{trip.trip_id}</TableCell>
+                                    <TableCell>{users.find(u => u.user_id === trip.user_id)?.name || 'Unknown'}</TableCell>
+                                    <TableCell>{vehicles.find(v => v.id === trip.vehicle_id)?.make} {vehicles.find(v => v.id === trip.vehicle_id)?.model}</TableCell>
+                                    <TableCell>{trip.trip_date}</TableCell>
+                                    <TableCell>{trip.trip_status}</TableCell>
+                                    <TableCell>
+                                        <IconButton onClick={() => handleOpenTripDialog(trip)}>
+                                            <Edit />
+                                        </IconButton>
+                                        <IconButton color="error" onClick={async () => {
+                                            try {
+                                                const baseUrl = 'http://localhost:8000';
+                                                await axios.delete(`${baseUrl}/api/delete_trip/${trip.trip_id}`, { headers: { Authorization: `Bearer ${token}` } });
+                                                setTrips(trips.filter(t => t.trip_id !== trip.trip_id));
+                                            } catch (err: any) {
+                                                setError(err.response?.data?.detail || 'Failed to delete trip');
+                                            }
+                                        }}>
+                                            <Delete />
+                                        </IconButton>
+                                    </TableCell>
                                 </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {users.map((user) => (
+                            ))}
+                        </TableBody>
+                    </Table>
+                </Box>
+            )}
+
+            {activeTab === 'inspections' && (
+                <Box sx={{ mb: 4 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                        <Typography variant="h6">Inspections</Typography>
+                        <Button variant="contained" startIcon={<Add />} onClick={() => handleOpenInspectionDialog()}>Add Inspection</Button>
+                    </Box>
+                    <Table>
+                        <TableHead>
+                            <TableRow>
+                                <TableCell>ID</TableCell>
+                                <TableCell>Employee</TableCell>
+                                <TableCell>Vehicle</TableCell>
+                                <TableCell>Date</TableCell>
+                                <TableCell>Type</TableCell>
+                                <TableCell>Signed By</TableCell>
+                                <TableCell>Actions</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {inspections.map((inspection) => (
+                                <TableRow key={inspection.inspection_id}>
+                                    <TableCell>{inspection.inspection_id}</TableCell>
+                                    <TableCell>{users.find(u => u.user_id === inspection.user_id)?.name || 'Unknown'}</TableCell>
+                                    <TableCell>{vehicles.find(v => v.id === inspection.vehicle_id)?.make} {vehicles.find(v => v.id === inspection.vehicle_id)?.model}</TableCell>
+                                    <TableCell>{inspection.date}</TableCell>
+                                    <TableCell>{inspection.type}</TableCell>
+                                    <TableCell>{inspection.signed_by || 'Not signed'}</TableCell>
+                                    <TableCell>
+                                        <IconButton onClick={() => handleOpenInspectionDialog(inspection)}>
+                                            <Edit />
+                                        </IconButton>
+                                        <IconButton color="error" onClick={async () => {
+                                            try {
+                                                const baseUrl = 'http://localhost:8000';
+                                                await axios.delete(`${baseUrl}/api/inspections/${inspection.inspection_id}`, { headers: { Authorization: `Bearer ${token}` } });
+                                                setInspections(inspections.filter(i => i.inspection_id !== inspection.inspection_id));
+                                            } catch (err: any) {
+                                                setError(err.response?.data?.detail || 'Failed to delete inspection');
+                                            }
+                                        }}>
+                                            <Delete />
+                                        </IconButton>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </Box>
+            )}
+
+            {activeTab === 'users' && (
+                <Box sx={{ mb: 4 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                        <Typography variant="h6">Users</Typography>
+                        <Button variant="contained" startIcon={<Add />} onClick={() => { setEditUser(null); setNewUser({ name: '', email: '', password: '', role: 'employee', vehicle_id: null }); setOpenUserDialog(true); }}>
+                            Add User
+                        </Button>
+                    </Box>
+                    <Table>
+                        <TableHead>
+                            <TableRow>
+                                <TableCell>ID</TableCell>
+                                <TableCell>Name</TableCell>
+                                <TableCell>Email</TableCell>
+                                <TableCell>Role</TableCell>
+                                <TableCell>Assigned Vehicle</TableCell>
+                                <TableCell>Actions</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {users.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={6} align="center">No users found</TableCell>
+                                </TableRow>
+                            ) : (
+                                users.map((user) => (
                                     <TableRow key={user.user_id}>
                                         <TableCell>{user.user_id}</TableCell>
                                         <TableCell>{user.name}</TableCell>
                                         <TableCell>{user.email}</TableCell>
                                         <TableCell>{user.role}</TableCell>
-                                        <TableCell>{user.vehicle_id || 'N/A'}</TableCell>
+                                        <TableCell>{user.vehicle_id ? vehicles.find(v => v.id === user.vehicle_id)?.make + ' ' + vehicles.find(v => v.id === user.vehicle_id)?.model : 'None'}</TableCell>
                                         <TableCell>
-                                            <Button
-                                                variant="outlined"
-                                                onClick={() => { setSelectedUserId(user.user_id); fetchUser(user.user_id); }}
-                                            >
-                                                View
-                                            </Button>
+                                            <IconButton onClick={() => { setEditUser(user); setNewUser({ name: user.name, email: user.email, password: '', role: user.role, vehicle_id: user.vehicle_id }); setOpenUserDialog(true); }}>
+                                                <Edit />
+                                            </IconButton>
+                                            <IconButton color="error" onClick={async () => {
+                                                try {
+                                                    const baseUrl = 'http://localhost:8000';
+                                                    await axios.delete(`${baseUrl}/api/delete_user/${user.user_id}`, { headers: { Authorization: `Bearer ${token}` } });
+                                                    setUsers(users.filter(u => u.user_id !== user.user_id));
+                                                    setAvailableUsers(availableUsers.filter(u => u.user_id !== user.user_id));
+                                                } catch (err: any) {
+                                                    setError(err.response?.data?.detail || 'Failed to delete user');
+                                                }
+                                            }}>
+                                                <Delete />
+                                            </IconButton>
                                         </TableCell>
                                     </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                        {selectedUserId && selectedUser && (
-                            <Box sx={{ mt: 4 }}>
-                                <Typography variant="h6">User Details (ID: {selectedUserId})</Typography>
-                                <Table>
-                                    <TableBody>
-                                        <TableRow>
-                                            <TableCell><strong>Name:</strong></TableCell>
-                                            <TableCell>{selectedUser.name}</TableCell>
-                                        </TableRow>
-                                        <TableRow>
-                                            <TableCell><strong>Email:</strong></TableCell>
-                                            <TableCell>{selectedUser.email}</TableCell>
-                                        </TableRow>
-                                        <TableRow>
-                                            <TableCell><strong>Role:</strong></TableCell>
-                                            <TableCell>{selectedUser.role}</TableCell>
-                                        </TableRow>
-                                        <TableRow>
-                                            <TableCell><strong>Vehicle ID:</strong></TableCell>
-                                            <TableCell>{selectedUser.vehicle_id || 'N/A'}</TableCell>
-                                        </TableRow>
-                                    </TableBody>
-                                </Table>
-                                <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
-                                    <TextField
-                                        label="Vehicle ID to Assign"
-                                        type="number"
-                                        value={assignVehicleId}
-                                        onChange={(e) => setAssignVehicleId(parseInt(e.target.value) || 0)}
-                                    />
-                                    <Button
-                                        variant="contained"
-                                        onClick={() => handleAssignVehicle(selectedUser.email)}
-                                    >
-                                        Assign Vehicle
-                                    </Button>
-                                    <Button
-                                        variant="outlined"
-                                        onClick={() => { setSelectedUserId(null); setSelectedUser(null); setAssignVehicleId(0); }}
-                                    >
-                                        Back
-                                    </Button>
-                                </Box>
+                                ))
+                            )}
+                        </TableBody>
+                    </Table>
+                </Box>
+            )
+            }
+
+            {
+                activeTab === 'vehicles' && (
+                    <Box sx={{ mb: 4 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                            <Typography variant="h6">Vehicles</Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <TextField
+                                    label="Search Vehicles"
+                                    value={filterQuery}
+                                    onChange={(e) => setFilterQuery(e.target.value)}
+                                    placeholder="Search by make, model, or license plate"
+                                    sx={{ width: 300 }}
+                                />
+                                <Button variant="contained" startIcon={<Add />} onClick={() => { setEditVehicle(null); setNewVehicle({ make: '', model: '', licence_plate: '', vin: '', mileage: 0, year: new Date().getFullYear(), fuel_type: null, last_service_km: 0, last_service_date: new Date().toISOString().split('T')[0] }); setOpenVehicleDialog(true); }}>
+                                    Add Vehicle
+                                </Button>
                             </Box>
-                        )}
-                    </Box>
-                )}
-                {tab === 2 && (
-                    <Box sx={{ mt: 4 }}>
-                        <Typography variant="h6">Manage Trips</Typography>
-                        <Button variant="contained" onClick={() => setOpenTripDialog(true)} sx={{ mb: 2 }}>
-                            Add Trip
-                        </Button>
-                        <Table sx={{ mt: 2 }}>
+                        </Box>
+                        <Table>
                             <TableHead>
                                 <TableRow>
-                                    <TableCell>Trip ID</TableCell>
-                                    <TableCell>User ID</TableCell>
-                                    <TableCell>Vehicle ID</TableCell>
-                                    <TableCell>Start Location</TableCell>
-                                    <TableCell>Destination</TableCell>
-                                    <TableCell>Purpose</TableCell>
-                                    <TableCell>Trip Date</TableCell>
-                                    <TableCell>Distance (km)</TableCell>
-                                    <TableCell>Fuel Consumed (liters)</TableCell>
-                                    <TableCell>Status</TableCell>
+                                    <TableCell>ID</TableCell>
+                                    <TableCell>Make</TableCell>
+                                    <TableCell>Model</TableCell>
+                                    <TableCell>License Plate</TableCell>
+                                    <TableCell>VIN</TableCell>
+                                    <TableCell>Mileage</TableCell>
                                     <TableCell>Actions</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
-                                {trips.map((trip) => (
-                                    <TableRow key={trip.trip_id}>
-                                        <TableCell>{trip.trip_id}</TableCell>
-                                        <TableCell>{trip.user_id}</TableCell>
-                                        <TableCell>{trip.vehicle_id}</TableCell>
-                                        <TableCell>{trip.start_location}</TableCell>
-                                        <TableCell>{trip.destination}</TableCell>
-                                        <TableCell>{trip.purpose || 'N/A'}</TableCell>
-                                        <TableCell>{trip.trip_date}</TableCell>
-                                        <TableCell>{trip.distance ?? 'N/A'}</TableCell>
-                                        <TableCell>{trip.fuel_consumed ?? 'N/A'}</TableCell>
-                                        <TableCell>{trip.trip_status ?? 'N/A'}</TableCell>
-                                        <TableCell>
-                                            <IconButton onClick={() => handleEditTrip(trip)}>
-                                                <EditIcon />
-                                            </IconButton>
-                                            <IconButton onClick={() => handleDeleteTrip(trip.trip_id)}>
-                                                <DeleteIcon />
-                                            </IconButton>
-                                        </TableCell>
+                                {filteredVehicles.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={7} align="center">No vehicles found</TableCell>
                                     </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                        <Dialog open={openTripDialog} onClose={() => { setOpenTripDialog(false); setEditTrip(null); }}>
-                            <DialogTitle>{editTrip ? 'Edit Trip' : 'Add New Trip'}</DialogTitle>
-                            <DialogContent>
-                                <TextField
-                                    label="User ID"
-                                    type="number"
-                                    value={editTrip ? editTrip.user_id : newTrip.user_id}
-                                    onChange={(e) =>
-                                        editTrip
-                                            ? setEditTrip({ ...editTrip, user_id: parseInt(e.target.value) })
-                                            : setNewTrip({ ...newTrip, user_id: parseInt(e.target.value) })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    label="Vehicle ID"
-                                    type="number"
-                                    value={editTrip ? editTrip.vehicle_id : newTrip.vehicle_id}
-                                    onChange={(e) =>
-                                        editTrip
-                                            ? setEditTrip({ ...editTrip, vehicle_id: parseInt(e.target.value) })
-                                            : setNewTrip({ ...newTrip, vehicle_id: parseInt(e.target.value) })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    label="Start Location"
-                                    value={editTrip ? editTrip.start_location : newTrip.start_location}
-                                    onChange={(e) =>
-                                        editTrip
-                                            ? setEditTrip({ ...editTrip, start_location: e.target.value })
-                                            : setNewTrip({ ...newTrip, start_location: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    label="Destination"
-                                    value={editTrip ? editTrip.destination : newTrip.destination}
-                                    onChange={(e) =>
-                                        editTrip
-                                            ? setEditTrip({ ...editTrip, destination: e.target.value })
-                                            : setNewTrip({ ...newTrip, destination: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    label="Purpose"
-                                    value={editTrip ? editTrip.purpose ?? '' : newTrip.purpose}
-                                    onChange={(e) =>
-                                        editTrip
-                                            ? setEditTrip({ ...editTrip, purpose: e.target.value || null })
-                                            : setNewTrip({ ...newTrip, purpose: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    label="Trip Date"
-                                    type="date"
-                                    value={editTrip ? editTrip.trip_date : newTrip.trip_date}
-                                    onChange={(e) =>
-                                        editTrip
-                                            ? setEditTrip({ ...editTrip, trip_date: e.target.value })
-                                            : setNewTrip({ ...newTrip, trip_date: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                    InputLabelProps={{ shrink: true }}
-                                />
-                                <TextField
-                                    label="Distance (km)"
-                                    type="number"
-                                    value={editTrip ? editTrip.distance ?? '' : newTrip.distance}
-                                    onChange={(e) => {
-                                        const value = e.target.value ? parseFloat(e.target.value) : null;
-                                        editTrip
-                                            ? setEditTrip({ ...editTrip, distance: value })
-                                            : setNewTrip({ ...newTrip, distance: value ?? 0 });
-                                    }}
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    label="Fuel Consumed (liters)"
-                                    type="number"
-                                    value={editTrip ? editTrip.fuel_consumed ?? '' : newTrip.fuel_consumed}
-                                    onChange={(e) => {
-                                        const value = e.target.value ? parseFloat(e.target.value) : null;
-                                        editTrip
-                                            ? setEditTrip({ ...editTrip, fuel_consumed: value })
-                                            : setNewTrip({ ...newTrip, fuel_consumed: value ?? 0 });
-                                    }}
-                                    fullWidth
-                                    margin="normal"
-                                />
-                                <TextField
-                                    select
-                                    label="Status"
-                                    value={editTrip ? editTrip.trip_status ?? '' : newTrip.trip_status}
-                                    onChange={(e) =>
-                                        editTrip
-                                            ? setEditTrip({ ...editTrip, trip_status: e.target.value || null })
-                                            : setNewTrip({ ...newTrip, trip_status: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                >
-                                    <MenuItem value="completed">Completed</MenuItem>
-                                    <MenuItem value="cancelled">Cancelled</MenuItem>
-                                    <MenuItem value="pending">Pending</MenuItem>
-                                    <MenuItem value="">None</MenuItem>
-                                </TextField>
-                            </DialogContent>
-                            <DialogActions>
-                                <Button onClick={() => { setOpenTripDialog(false); setEditTrip(null); }}>Cancel</Button>
-                                <Button onClick={editTrip ? handleUpdateTrip : handleAddTrip} variant="contained">
-                                    {editTrip ? 'Update' : 'Add'}
-                                </Button>
-                            </DialogActions>
-                        </Dialog>
-                    </Box>
-                )}
-                {tab === 3 && (
-                    <Box sx={{ mt: 4 }}>
-                        <Typography variant="h6">Manage Inspections</Typography>
-                        <Button variant="contained" onClick={() => setOpenInspectionDialog(true)} sx={{ mb: 2 }}>
-                            Add Inspection
-                        </Button>
-                        <Table sx={{ mt: 2 }}>
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell>Inspection ID</TableCell>
-                                    <TableCell>Vehicle ID</TableCell>
-                                    <TableCell>User ID</TableCell>
-                                    <TableCell>Type</TableCell>
-                                    <TableCell>Date</TableCell>
-                                    <TableCell>Signed By</TableCell>
-                                    <TableCell>Status</TableCell>
-                                    <TableCell>Actions</TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {inspections.map((inspection) => (
-                                    <TableRow key={inspection.inspection_id}>
-                                        <TableCell>{inspection.inspection_id}</TableCell>
-                                        <TableCell>{inspection.vehicle_id}</TableCell>
-                                        <TableCell>{inspection.user_id}</TableCell>
-                                        <TableCell>{inspection.type}</TableCell>
-                                        <TableCell>{inspection.date}</TableCell>
-                                        <TableCell>{inspection.signed_by}</TableCell>
-                                        <TableCell>{inspection.status}</TableCell>
-                                        <TableCell>
-                                            <IconButton onClick={() => handleEditInspection(inspection)}>
-                                                <EditIcon />
-                                            </IconButton>
-                                            <IconButton onClick={() => handleDeleteInspection(inspection.inspection_id)}>
-                                                <DeleteIcon />
-                                            </IconButton>
-                                            <IconButton onClick={() => fetchInspection(inspection.inspection_id)}>
-                                                <VisibilityIcon />
-                                            </IconButton>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                        <Dialog open={openInspectionDialog} onClose={() => { setOpenInspectionDialog(false); setEditInspection(null); }}>
-                            <DialogTitle>{editInspection ? 'Edit Inspection' : 'Add New Inspection'}</DialogTitle>
-                            <DialogContent>
-                                <TextField
-                                    label="Vehicle ID"
-                                    type="number"
-                                    value={editInspection ? editInspection.vehicle_id : newInspection.vehicle_id}
-                                    onChange={(e) =>
-                                        editInspection
-                                            ? setEditInspection({ ...editInspection, vehicle_id: parseInt(e.target.value) })
-                                            : setNewInspection({ ...newInspection, vehicle_id: parseInt(e.target.value) })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                    required
-                                />
-                                <TextField
-                                    label="User ID"
-                                    type="number"
-                                    value={editInspection ? editInspection.user_id : newInspection.user_id}
-                                    onChange={(e) =>
-                                        editInspection
-                                            ? setEditInspection({ ...editInspection, user_id: parseInt(e.target.value) })
-                                            : setNewInspection({ ...newInspection, user_id: parseInt(e.target.value) })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                    required
-                                />
-                                <TextField
-                                    select
-                                    label="Type"
-                                    value={editInspection ? editInspection.type : newInspection.type}
-                                    onChange={(e) =>
-                                        editInspection
-                                            ? setEditInspection({ ...editInspection, type: e.target.value })
-                                            : setNewInspection({ ...newInspection, type: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                    required
-                                >
-                                    <MenuItem value="pre_trip">Pre-Trip</MenuItem>
-                                    <MenuItem value="post_trip">Post-Trip</MenuItem>
-                                </TextField>
-                                <TextField
-                                    label="Date"
-                                    type="date"
-                                    value={editInspection ? editInspection.date : newInspection.date}
-                                    onChange={(e) =>
-                                        editInspection
-                                            ? setEditInspection({ ...editInspection, date: e.target.value })
-                                            : setNewInspection({ ...newInspection, date: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                    InputLabelProps={{ shrink: true }}
-                                    required
-                                />
-                                <TextField
-                                    label="Signed By"
-                                    value={editInspection ? editInspection.signed_by : newInspection.signed_by}
-                                    onChange={(e) =>
-                                        editInspection
-                                            ? setEditInspection({ ...editInspection, signed_by: e.target.value })
-                                            : setNewInspection({ ...newInspection, signed_by: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                    required
-                                />
-                                <TextField
-                                    select
-                                    label="Status"
-                                    value={editInspection ? editInspection.status : newInspection.status}
-                                    onChange={(e) =>
-                                        editInspection
-                                            ? setEditInspection({ ...editInspection, status: e.target.value })
-                                            : setNewInspection({ ...newInspection, status: e.target.value })
-                                    }
-                                    fullWidth
-                                    margin="normal"
-                                    required
-                                >
-                                    <MenuItem value="completed">Completed</MenuItem>
-                                    <MenuItem value="pending">Pending</MenuItem>
-                                </TextField>
-                            </DialogContent>
-                            <DialogActions>
-                                <Button onClick={() => { setOpenInspectionDialog(false); setEditInspection(null); }}>Cancel</Button>
-                                <Button onClick={editInspection ? handleUpdateInspection : handleAddInspection} variant="contained">
-                                    {editInspection ? 'Update' : 'Add'}
-                                </Button>
-                            </DialogActions>
-                        </Dialog>
-                        <Dialog open={openViewInspectionDialog} onClose={() => { setOpenViewInspectionDialog(false); setSelectedInspection(null); }}>
-                            <DialogTitle>Inspection Details (ID: {selectedInspection?.inspection_id})</DialogTitle>
-                            <DialogContent>
-                                {selectedInspection && (
-                                    <Table>
-                                        <TableBody>
-                                            <TableRow>
-                                                <TableCell><strong>Vehicle ID:</strong></TableCell>
-                                                <TableCell>{selectedInspection.vehicle_id}</TableCell>
-                                            </TableRow>
-                                            <TableRow>
-                                                <TableCell><strong>User ID:</strong></TableCell>
-                                                <TableCell>{selectedInspection.user_id}</TableCell>
-                                            </TableRow>
-                                            <TableRow>
-                                                <TableCell><strong>Type:</strong></TableCell>
-                                                <TableCell>{selectedInspection.type}</TableCell>
-                                            </TableRow>
-                                            <TableRow>
-                                                <TableCell><strong>Date:</strong></TableCell>
-                                                <TableCell>{selectedInspection.date}</TableCell>
-                                            </TableRow>
-                                            <TableRow>
-                                                <TableCell><strong>Signed By:</strong></TableCell>
-                                                <TableCell>{selectedInspection.signed_by}</TableCell>
-                                            </TableRow>
-                                            <TableRow>
-                                                <TableCell><strong>Status:</strong></TableCell>
-                                                <TableCell>{selectedInspection.status}</TableCell>
-                                            </TableRow>
-                                        </TableBody>
-                                    </Table>
+                                ) : (
+                                    filteredVehicles.map((vehicle) => (
+                                        <TableRow key={vehicle.id}>
+                                            <TableCell>{vehicle.id}</TableCell>
+                                            <TableCell>{vehicle.make}</TableCell>
+                                            <TableCell>{vehicle.model}</TableCell>
+                                            <TableCell>{vehicle.licence_plate}</TableCell>
+                                            <TableCell>{vehicle.vin}</TableCell>
+                                            <TableCell>{vehicle.mileage}</TableCell>
+                                            <TableCell>
+                                                <IconButton onClick={() => { setEditVehicle(vehicle); setNewVehicle({ make: vehicle.make, model: vehicle.model, licence_plate: vehicle.licence_plate, vin: vehicle.vin, mileage: vehicle.mileage, year: vehicle.year, fuel_type: vehicle.fuel_type, last_service_km: vehicle.last_service_km, last_service_date: vehicle.last_service_date }); setOpenVehicleDialog(true); }}>
+                                                    <Edit />
+                                                </IconButton>
+                                                <IconButton color="error" onClick={async () => {
+                                                    try {
+                                                        const baseUrl = 'http://localhost:8000';
+                                                        await axios.delete(`${baseUrl}/api/delete_vehicle/${vehicle.id}`, { headers: { Authorization: `Bearer ${token}` } });
+                                                        setVehicles(vehicles.filter(v => v.id !== vehicle.id));
+                                                        setAvailableVehicles(availableVehicles.filter(v => v.id !== vehicle.id));
+                                                    } catch (err: any) {
+                                                        setError(err.response?.data?.detail || 'Failed to delete vehicle');
+                                                    }
+                                                }}>
+                                                    <Delete />
+                                                </IconButton>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
                                 )}
-                            </DialogContent>
-                            <DialogActions>
-                                <Button onClick={() => { setOpenViewInspectionDialog(false); setSelectedInspection(null); }}>Close</Button>
-                            </DialogActions>
-                        </Dialog>
+                            </TableBody>
+                        </Table>
                     </Box>
-                )}
-                {tab === 4 && <div>Service Notifications Placeholder</div>}
-            </Container>
-        </>
+                )
+            }
+
+            {
+                activeTab === 'due' && (
+                    <Box sx={{ mb: 4 }}>
+                        <Typography variant="h6" sx={{ mb: 2 }}>Vehicles Due for Service</Typography>
+                        <Table>
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>Vehicle</TableCell>
+                                    <TableCell>License Plate</TableCell>
+                                    <TableCell>Mileage</TableCell>
+                                    <TableCell>Last Service</TableCell>
+                                    <TableCell>Reason</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {dueForService.map((vehicle) => (
+                                    <TableRow key={vehicle.id}>
+                                        <TableCell>{vehicle.make} {vehicle.model}</TableCell>
+                                        <TableCell>{vehicle.licence_plate}</TableCell>
+                                        <TableCell>{vehicle.mileage}</TableCell>
+                                        <TableCell>{vehicle.last_service_date}</TableCell>
+                                        <TableCell>{vehicle.reason}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </Box>
+                )
+            }
+
+            {
+                activeTab === 'history' && (
+                    <Box sx={{ mb: 4 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                            <Typography variant="h6">Service History</Typography>
+                            <Button variant="contained" startIcon={<Add />} onClick={handleOpenServiceDialog}>Add Service Record</Button>
+                        </Box>
+                        <Table>
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>Vehicle</TableCell>
+                                    <TableCell>Service Date</TableCell>
+                                    <TableCell>Mileage</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {serviceHistory.map((service) => (
+                                    <TableRow key={service.service_id}>
+                                        <TableCell>{vehicles.find(v => v.vin === service.vehicle_vin)?.make} {vehicles.find(v => v.vin === service.vehicle_vin)?.model}</TableCell>
+                                        <TableCell>{service.service_date}</TableCell>
+                                        <TableCell>{service.service_mileage}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </Box>
+                )
+            }
+
+            {/* Trip Dialog */}
+            <Dialog open={openTripDialog} onClose={() => setOpenTripDialog(false)} maxWidth="md" fullWidth>
+                <DialogTitle>{editTrip ? 'Edit Trip' : 'Add Trip'}</DialogTitle>
+                <DialogContent>
+                    <FormControl fullWidth margin="normal">
+                        <InputLabel>Employee *</InputLabel>
+                        <Select name="user_id" value={newTrip.user_id} onChange={(e) => setNewTrip({ ...newTrip, user_id: Number(e.target.value) })} label="Employee *" required>
+                            {availableUsers.map(user => (
+                                <MenuItem key={user.user_id} value={user.user_id}>{user.name} ({user.email})</MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                    <FormControl fullWidth margin="normal">
+                        <InputLabel>Vehicle *</InputLabel>
+                        <Select name="vehicle_id" value={newTrip.vehicle_id} onChange={(e) => setNewTrip({ ...newTrip, vehicle_id: Number(e.target.value) })} label="Vehicle *" required>
+                            {availableVehicles.map(vehicle => (
+                                <MenuItem key={vehicle.id} value={vehicle.id}>{vehicle.make} {vehicle.model} ({vehicle.licence_plate})</MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                    <TextField label="Trip Date" name="trip_date" type="date" value={newTrip.trip_date} onChange={(e) => setNewTrip({ ...newTrip, trip_date: e.target.value })} fullWidth margin="normal" InputLabelProps={{ shrink: true }} required />
+                    <TextField label="Start Location" name="start_location" value={newTrip.start_location} onChange={(e) => setNewTrip({ ...newTrip, start_location: e.target.value })} fullWidth margin="normal" />
+                    <TextField label="Destination" name="destination" value={newTrip.destination} onChange={(e) => setNewTrip({ ...newTrip, destination: e.target.value })} fullWidth margin="normal" />
+                    <TextField label="Purpose" name="purpose" value={newTrip.purpose} onChange={(e) => setNewTrip({ ...newTrip, purpose: e.target.value })} fullWidth margin="normal" />
+                    <TextField label="Distance (km)" name="distance" type="number" value={newTrip.distance || ''} onChange={(e) => setNewTrip({ ...newTrip, distance: e.target.value ? Number(e.target.value) : null })} fullWidth margin="normal" />
+                    <TextField label="Fuel Consumed (L)" name="fuel_consumed" type="number" inputProps={{ step: "0.1" }} value={newTrip.fuel_consumed || ''} onChange={(e) => setNewTrip({ ...newTrip, fuel_consumed: e.target.value ? Number(e.target.value) : null })} fullWidth margin="normal" />
+                    <FormControl fullWidth margin="normal">
+                        <InputLabel>Trip Status</InputLabel>
+                        <Select name="trip_status" value={newTrip.trip_status} onChange={(e) => setNewTrip({ ...newTrip, trip_status: e.target.value as 'pending' | 'completed' | 'cancelled' })} label="Trip Status" required>
+                            <MenuItem value="pending">Pending</MenuItem>
+                            <MenuItem value="completed">Completed</MenuItem>
+                            <MenuItem value="cancelled">Cancelled</MenuItem>
+                        </Select>
+                    </FormControl>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenTripDialog(false)}>Cancel</Button>
+                    <Button onClick={handleTripSubmit} variant="contained">Save</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Inspection Dialog */}
+            <Dialog open={openInspectionDialog} onClose={() => setOpenInspectionDialog(false)} maxWidth="md" fullWidth>
+                <DialogTitle>{editInspection ? 'Edit Inspection' : 'Add Inspection'}</DialogTitle>
+                <DialogContent>
+                    <FormControl fullWidth margin="normal">
+                        <InputLabel>Employee *</InputLabel>
+                        <Select name="user_id" value={newInspection.user_id} onChange={(e) => setNewInspection({ ...newInspection, user_id: Number(e.target.value), employee_id: Number(e.target.value) })} label="Employee *" required>
+                            {availableUsers.map(user => (
+                                <MenuItem key={user.user_id} value={user.user_id}>{user.name} ({user.email})</MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                    <FormControl fullWidth margin="normal">
+                        <InputLabel>Vehicle *</InputLabel>
+                        <Select name="vehicle_id" value={newInspection.vehicle_id} onChange={(e) => setNewInspection({ ...newInspection, vehicle_id: Number(e.target.value) })} label="Vehicle *" required>
+                            {availableVehicles.map(vehicle => (
+                                <MenuItem key={vehicle.id} value={vehicle.id}>{vehicle.make} {vehicle.model} ({vehicle.licence_plate})</MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                    <TextField label="Inspection Date" name="date" type="date" value={newInspection.date} onChange={(e) => setNewInspection({ ...newInspection, date: e.target.value })} fullWidth margin="normal" InputLabelProps={{ shrink: true }} required />
+                    {['tires', 'brakes', 'lights', 'fluids', 'mirrors', 'wipers', 'battery', 'body', 'interior', 'engine', 'transmission', 'suspension'].map((component) => (
+                        <FormControl fullWidth margin="normal" key={component}>
+                            <InputLabel>{component.charAt(0).toUpperCase() + component.slice(1)}</InputLabel>
+                            <Select name={component} value={newInspection[component as keyof typeof newInspection] || InspectionStatus.good} onChange={(e) => setNewInspection({ ...newInspection, [component]: e.target.value as InspectionStatus })} label={component.charAt(0).toUpperCase() + component.slice(1)}>
+                                {Object.values(InspectionStatus).map(status => (
+                                    <MenuItem key={status} value={status}>{status}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    ))}
+                    <FormControl fullWidth margin="normal">
+                        <InputLabel>Inspection Type</InputLabel>
+                        <Select name="type" value={newInspection.type} onChange={(e) => setNewInspection({ ...newInspection, type: e.target.value as InspectionType })} label="Inspection Type" required>
+                            <MenuItem value="pre_trip">Pre-Trip</MenuItem>
+                            <MenuItem value="post_trip">Post-Trip</MenuItem>
+                        </Select>
+                    </FormControl>
+                    <TextField label="Signed By" name="signed_by" value={newInspection.signed_by} onChange={(e) => setNewInspection({ ...newInspection, signed_by: e.target.value })} fullWidth margin="normal" />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenInspectionDialog(false)}>Cancel</Button>
+                    <Button onClick={handleInspectionSubmit} variant="contained">Save</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Service History Dialog */}
+            <Dialog open={openServiceDialog} onClose={() => setOpenServiceDialog(false)}>
+                <DialogTitle>Add Service Record</DialogTitle>
+                <DialogContent>
+                    <FormControl fullWidth margin="normal">
+                        <InputLabel>Vehicle *</InputLabel>
+                        <Select name="vehicle_vin" value={newService.vehicle_vin} onChange={(e) => setNewService({ ...newService, vehicle_vin: e.target.value })} label="Vehicle *" required>
+                            {vehicles.map(vehicle => (
+                                <MenuItem key={vehicle.vin} value={vehicle.vin}>{vehicle.make} {vehicle.model} ({vehicle.licence_plate})</MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                    <TextField label="Service Date" name="service_date" type="date" value={newService.service_date} onChange={(e) => setNewService({ ...newService, service_date: e.target.value })} fullWidth margin="normal" InputLabelProps={{ shrink: true }} required />
+                    <TextField label="Mileage" name="service_mileage" type="number" value={newService.service_mileage} onChange={(e) => setNewService({ ...newService, service_mileage: Number(e.target.value) })} fullWidth margin="normal" required />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenServiceDialog(false)}>Cancel</Button>
+                    <Button onClick={handleServiceSubmit} variant="contained">Save</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* User Dialog */}
+            <Dialog open={openUserDialog} onClose={() => setOpenUserDialog(false)}>
+                <DialogTitle>{editUser ? 'Edit User' : 'Add User'}</DialogTitle>
+                <DialogContent>
+                    <TextField label="Name" name="name" value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} fullWidth margin="normal" required />
+                    <TextField label="Email" name="email" type="email" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} fullWidth margin="normal" required />
+                    <TextField label="Password" name="password" type="password" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} fullWidth margin="normal" helperText={editUser ? 'Leave blank to keep current password' : ''} />
+                    <FormControl fullWidth margin="normal">
+                        <InputLabel>Role</InputLabel>
+                        <Select name="role" value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value as 'admin' | 'employee' })} label="Role" required>
+                            <MenuItem value="admin">Admin</MenuItem>
+                            <MenuItem value="employee">Employee</MenuItem>
+                        </Select>
+                    </FormControl>
+                    <FormControl fullWidth margin="normal">
+                        <InputLabel>Assigned Vehicle</InputLabel>
+                        <Select name="vehicle_id" value={newUser.vehicle_id || ''} onChange={(e) => setNewUser({ ...newUser, vehicle_id: e.target.value ? Number(e.target.value) : null })} label="Assigned Vehicle">
+                            <MenuItem value="">None</MenuItem>
+                            {availableVehicles.map(vehicle => (
+                                <MenuItem key={vehicle.id} value={vehicle.id}>{vehicle.make} {vehicle.model} ({vehicle.licence_plate})</MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenUserDialog(false)}>Cancel</Button>
+                    <Button onClick={handleUserSubmit} variant="contained">Save</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Vehicle Dialog */}
+            <Dialog open={openVehicleDialog} onClose={() => setOpenVehicleDialog(false)}>
+                <DialogTitle>{editVehicle ? 'Edit Vehicle' : 'Add Vehicle'}</DialogTitle>
+                <DialogContent>
+                    <TextField label="Make" name="make" value={newVehicle.make} onChange={(e) => setNewVehicle({ ...newVehicle, make: e.target.value })} fullWidth margin="normal" required />
+                    <TextField label="Model" name="model" value={newVehicle.model} onChange={(e) => setNewVehicle({ ...newVehicle, model: e.target.value })} fullWidth margin="normal" required />
+                    <TextField label="License Plate" name="licence_plate" value={newVehicle.licence_plate} onChange={(e) => setNewVehicle({ ...newVehicle, licence_plate: e.target.value })} fullWidth margin="normal" required />
+                    <TextField label="VIN" name="vin" value={newVehicle.vin} onChange={(e) => setNewVehicle({ ...newVehicle, vin: e.target.value })} fullWidth margin="normal" required />
+                    <TextField label="Year" name="year" type="number" value={newVehicle.year} onChange={(e) => setNewVehicle({ ...newVehicle, year: Number(e.target.value) })} fullWidth margin="normal" required inputProps={{ min: 1900, max: new Date().getFullYear() + 1 }} />
+                    <TextField label="Fuel Type" name="fuel_type" value={newVehicle.fuel_type || ''} onChange={(e) => setNewVehicle({ ...newVehicle, fuel_type: e.target.value || null })} fullWidth margin="normal" />
+                    <TextField label="Mileage" name="mileage" type="number" value={newVehicle.mileage} onChange={(e) => setNewVehicle({ ...newVehicle, mileage: Number(e.target.value) })} fullWidth margin="normal" required />
+                    <TextField label="Last Service Mileage" name="last_service_km" type="number" value={newVehicle.last_service_km} onChange={(e) => setNewVehicle({ ...newVehicle, last_service_km: Number(e.target.value) })} fullWidth margin="normal" />
+                    <TextField label="Last Service Date" name="last_service_date" type="date" value={newVehicle.last_service_date} onChange={(e) => setNewVehicle({ ...newVehicle, last_service_date: e.target.value })} fullWidth margin="normal" InputLabelProps={{ shrink: true }} />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenVehicleDialog(false)}>Cancel</Button>
+                    <Button onClick={handleVehicleSubmit} variant="contained">Save</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Profile Dialog */}
+            <Dialog open={openProfileDialog} onClose={() => setOpenProfileDialog(false)}>
+                <DialogTitle>Edit Profile</DialogTitle>
+                <DialogContent>
+                    <TextField label="Name" fullWidth margin="normal" value={profileData.name} onChange={(e) => setProfileData({ ...profileData, name: e.target.value })} />
+                    <TextField label="Email" type="email" fullWidth margin="normal" value={profileData.email} onChange={(e) => setProfileData({ ...profileData, email: e.target.value })} />
+                    <TextField label="New Password" type="password" fullWidth margin="normal" value={profileData.password} onChange={(e) => setProfileData({ ...profileData, password: e.target.value })} helperText="Leave blank to keep current password" />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOpenProfileDialog(false)}>Cancel</Button>
+                    <Button onClick={handleProfileUpdate} variant="contained">Save</Button>
+                </DialogActions>
+            </Dialog>
+        </Box >
     );
 };
 

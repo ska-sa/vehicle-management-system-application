@@ -89,7 +89,7 @@ class Trip(Base):
 
 
 class ServiceNotification(Base):
-    __tablename__ = "ServiceNotification"
+    __tablename__ = "servicenotification"
     notification_id = Column(Integer, primary_key=True, index=True)
     vehicle_id = Column(Integer, ForeignKey("vehicle.id"), index=True)
     service_date = Column(Date)
@@ -105,18 +105,35 @@ class InspectionType(str, Enum):
     pre_trip = "pre_trip"
     post_trip = "post_trip"
 
+
+class InspectionStatus(str, Enum):
+    good = "good"
+    needs_attention = "needs_attention"
+    moderate = "moderate"
+    excellent = "excellent"
 # Inspection Model
 
 
 class Inspection(Base):
-    __tablename__ = "Inspection"
+    __tablename__ = "inspection"
     inspection_id = Column(Integer, primary_key=True, index=True)
     vehicle_id = Column(Integer, ForeignKey("vehicle.id"), index=True)
     user_id = Column(Integer, ForeignKey("users.user_id"), index=True)
     type = Column(SQLEnum(InspectionType))
+    tires = Column(SQLEnum(InspectionStatus))
+    brakes = Column(SQLEnum(InspectionStatus))
+    lights = Column(SQLEnum(InspectionStatus))
+    fluids = Column(SQLEnum(InspectionStatus))
+    mirrors = Column(SQLEnum(InspectionStatus))
+    wipers = Column(SQLEnum(InspectionStatus))
+    battery = Column(SQLEnum(InspectionStatus))
+    body = Column(SQLEnum(InspectionStatus))
+    interior = Column(SQLEnum(InspectionStatus))
+    engine = Column(SQLEnum(InspectionStatus))
+    transmission = Column(SQLEnum(InspectionStatus))
+    suspension = Column(SQLEnum(InspectionStatus))
     date = Column(Date)
     signed_by = Column(String)
-    status = Column(SQLEnum(Status))
 
     # Relationships
     vehicle = relationship("Vehicle", back_populates="inspections")
@@ -126,9 +143,9 @@ class Inspection(Base):
 
 
 class ServiceHistory(Base):
-    __tablename__ = "ServiceHistory"
+    __tablename__ = "servicehistory"
     service_id = Column(Integer, primary_key=True, index=True)
-    vehicle_vin = Column(Integer, ForeignKey("vehicle.id"), index=True)
+    vehicle_vin = Column(String, ForeignKey("vehicle.vin"), index=True)
     service_date = Column(Date)
     service_mileage = Column(Integer)
 

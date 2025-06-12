@@ -1,17 +1,10 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-
-interface User {
-    user_id: number;
-    name: string;
-    email: string;
-    role: string;
-    vehicle_id: number | null;
-}
+import { UserProfile } from '../types/types'; // Import UserProfile
 
 interface AuthContextType {
-    user: User | null;
+    user: UserProfile | null;
     token: string | null;
-    login: (token: string, user: User) => void;
+    login: (token: string, user: UserProfile) => void;
     logout: () => void;
 }
 
@@ -19,9 +12,9 @@ export const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [token, setToken] = useState<string | null>(null);
-    const [user, setUser] = useState<User | null>(null);
+    const [user, setUser] = useState<UserProfile | null>(null);
 
-    const login = (newToken: string, newUser: User) => {
+    const login = (newToken: string, newUser: UserProfile) => {
         setToken(newToken);
         setUser(newUser);
     };

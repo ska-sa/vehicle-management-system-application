@@ -7,14 +7,17 @@ import { useAuth } from '../context/AuthContext';
 const LoginPage: React.FC = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [role, setRole] = useState('employee');
+    const [role, setRole] = useState('admin');
     const [error, setError] = useState('');
     const { login } = useAuth();
     const navigate = useNavigate();
 
+    console.log('LoginPage: Rendering with email:', email, 'role:', role);
+
     const handleLogin = async () => {
+        setError(''); // Clear previous errors
         try {
-            console.log('Using backend URL:', process.env.REACT_APP_BACKEND_URL); // Debug log
+            console.log('Using backend URL:', process.env.REACT_APP_BACKEND_URL);
             console.log('Attempting login with', { email, password, role });
             const response = await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/login/`, {
                 email,
@@ -30,8 +33,8 @@ const LoginPage: React.FC = () => {
             if (user.role === 'admin') navigate('/admin');
             else navigate('/employee');
         } catch (error: any) {
+            console.error('Login error:', error.response?.data || error.message);
             setError(error.response?.data?.detail || error.message || 'Login failed. Please try again.');
-            console.error('Login error:', error.response?.data || error);
         }
     };
 

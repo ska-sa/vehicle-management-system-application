@@ -72,6 +72,17 @@ class UserResponse(UserBase):
         from_attributes = True
         use_enum_values = True
 
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    vehicle_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+        use_enum_values = True
+
 # Trip Schemas
 
 
@@ -120,13 +131,31 @@ class ServiceNotificationResponse(ServiceNotificationBase):
 # Inspection Schemas
 
 
+class InspectionStatus(str, Enum):
+    good = "good"
+    needs_attention = "needs_attention"
+    moderate = "moderate"
+    excellent = "excellent"
+
+
 class InspectionBase(BaseModel):
     vehicle_id: int
     user_id: int
-    type: InspectionType
+    tires: Optional[InspectionStatus] = None
+    brakes: Optional[InspectionStatus] = None
+    lights: Optional[InspectionStatus] = None
+    fluids: Optional[InspectionStatus] = None
+    mirrors: Optional[InspectionStatus] = None
+    wipers: Optional[InspectionStatus] = None
+    battery: Optional[InspectionStatus] = None
+    body: Optional[InspectionStatus] = None
+    interior: Optional[InspectionStatus] = None
+    engine: Optional[InspectionStatus] = None
+    transmission: Optional[InspectionStatus] = None
+    suspension: Optional[InspectionStatus] = None
     date: date
-    signed_by: str
-    status: Status
+    signed_by: Optional[str] = None
+    type: Optional[InspectionType] = None
 
 
 class InspectionCreate(InspectionBase):
@@ -140,11 +169,25 @@ class InspectionResponse(InspectionBase):
         from_attributes = True
         use_enum_values = True
 
+
+class InspectionUpdate(BaseModel):
+    signed_by: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 # ServiceHistory Schemas
 
 
+class VehicleDueForServiceResponse(VehicleBase):
+    id: int
+    service_notification: Optional['ServiceNotificationResponse'] = None
+    # Reason why the vehicle is due (e.g., "Service notification due", "Mileage threshold exceeded", "Time since last service exceeded")
+    reason: str
+
+
 class ServiceHistoryBase(BaseModel):
-    vehicle_vin: int
+    vehicle_vin: str
     service_date: date
     service_mileage: int
 
@@ -166,3 +209,8 @@ class Login(BaseModel):
     email: EmailStr
     password: str
     role: Role
+
+
+class AssignVehicleRequest(BaseModel):
+    email: EmailStr
+    vehicle_id: int

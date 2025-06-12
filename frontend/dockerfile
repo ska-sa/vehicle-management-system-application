@@ -1,19 +1,18 @@
 # Use Node.js 18 as the base image
-FROM node:18
+FROM node:18-slim
 
 # Set working directory
 WORKDIR /app
 
-# Copy package.json and install dependencies
-COPY package.json ./
-COPY package-lock.json* ./
+# Copy package.json and package-lock.json (if it exists) and install dependencies
+COPY package.json package-lock.json* ./
 RUN npm install
 
-# Copy the rest of the application code
+# Copy the rest of the application code (including the public directory)
 COPY . .
 
 # Expose port 3000
 EXPOSE 3000
 
-# Start the app with CRA
+# Start the app with CRA in development mode
 CMD ["npm", "run", "start", "--", "--host", "0.0.0.0"]
